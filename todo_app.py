@@ -23,20 +23,48 @@ from datetime import date, timedelta
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todo_data.json")
 
-# ------------------------------------------------------------------ palette
-DESK_TOP     = "#c9b79f"   # warm desk, lighter at top
-DESK_BOTTOM  = "#a88f72"   # darker toward the bottom (light from above)
-COVER        = "#2f3742"   # notebook cover (slate)
-COVER_EDGE   = "#232a33"
-PAGE         = "#fdfdfb"   # paper
-PAGE_EDGE    = "#e7e6df"
-LINE         = "#e9e9ef"   # ruled lines
-INK          = "#2b2b30"
-INK_FAINT    = "#8a8a93"
-DONE_INK     = "#b6b6bd"
-ACCENT       = "#0a84ff"   # Apple system blue
-RING         = "#c9ccd2"
-RING_DARK    = "#9aa0aa"
+# ------------------------------------------------------------------ palettes
+# Two themes. apply_theme() copies the chosen palette into the module globals;
+# because every draw routine reads these names at call time, a redraw after a
+# switch picks up the new colours automatically.
+LIGHT = {
+    "DESK_TOP":    "#c9b79f",   # warm desk, lighter at top
+    "DESK_BOTTOM": "#a88f72",   # darker toward the bottom (light from above)
+    "COVER":       "#2f3742",   # notebook cover (slate)
+    "COVER_EDGE":  "#232a33",
+    "PAGE":        "#fdfdfb",   # paper
+    "PAGE_EDGE":   "#e7e6df",
+    "LINE":        "#e9e9ef",   # ruled lines
+    "INK":         "#2b2b30",
+    "INK_FAINT":   "#8a8a93",
+    "DONE_INK":    "#b6b6bd",
+    "ACCENT":      "#0a84ff",   # Apple system blue
+    "RING":        "#c9ccd2",
+    "RING_DARK":   "#9aa0aa",
+}
+DARK = {
+    "DESK_TOP":    "#3a3a40",   # cool, dark desk
+    "DESK_BOTTOM": "#242428",
+    "COVER":       "#3a424e",   # slate cover, a touch above the desk
+    "COVER_EDGE":  "#20262e",
+    "PAGE":        "#1e1e22",   # dark paper
+    "PAGE_EDGE":   "#2b2b31",
+    "LINE":        "#34343c",   # ruled lines
+    "INK":         "#e7e7ec",
+    "INK_FAINT":   "#8a8a93",
+    "DONE_INK":    "#5f5f68",
+    "ACCENT":      "#0a84ff",   # Apple system blue
+    "RING":        "#c9ccd2",
+    "RING_DARK":   "#8b909a",
+}
+THEMES = {"light": LIGHT, "dark": DARK}
+
+
+def apply_theme(name):
+    globals().update(THEMES.get(name, LIGHT))
+
+
+apply_theme("light")   # populate the colour globals for import-time use
 
 ROW_H   = 40   # spacing between ruled lines
 CB_SIZE = 20   # checkbox square
@@ -54,11 +82,14 @@ class TodoApp:
         self.root.title("Notebook")
         self.root.geometry("760x720")
         self.root.minsize(560, 460)
-        self.root.configure(bg=DESK_BOTTOM)
 
         self._pick_fonts()
 
         self.data = self._load()
+        self.theme = self._load_theme()
+        apply_theme(self.theme)
+        self.root.configure(bg=DESK_BOTTOM)
+
         self.current = date.today()
         self.rows = []          # [{cx, cy, done, entry, tag}]
         self.overflow = []      # tasks beyond what fits on the page (preserved)
@@ -100,6 +131,13 @@ class TodoApp:
                 return json.load(f)
         except (OSError, ValueError):
             return {}
+
+    def _load_theme(self):
+        return self.data.get("_settings", {}).get("theme", "light")
+
+    def _save_settings(self):
+        self.data.setdefault("_settings", {})["theme"] = self.theme
+        self._save()
 
     def _collect(self):
         tasks = [{"text": r["entry"].get(), "done": r["done"]} for r in self.rows]
@@ -300,6 +338,17 @@ class TodoApp:
         self.canvas.create_text((bx0 + bx1) / 2, cy, text=label, fill=INK,
                                 font=self.f_ui_b, tags=("contents", "nav_cal"))
 
+        # light / dark toggle, sitting just left of the date block.
+        # Shows the mode you'll switch to: moon while light, sun while dark.
+        size = 30
+        gx1 = bx0 - gap
+        gx0 = gx1 - size
+        self._pill(gx0, cy - 15, gx1, cy + 15, "nav_theme",
+                   _mix(PAGE, INK, .05), self._toggle_theme, outline=PAGE_EDGE)
+        icon = "☀" if self.theme == "dark" else "☾"   # sun / moon
+        self.canvas.create_text((gx0 + gx1) / 2, cy + 1, text=icon, fill=INK,
+                                font=self.f_ui_b, tags=("contents", "nav_theme"))
+
     # --------------------------------------------------------------- a row
     def _add_row(self, i, cb_x, cy, text_x, text_w, task):
         tag = f"cb{i}"
@@ -355,6 +404,13 @@ class TodoApp:
 
     def _go_today(self):
         self._change_date(date.today())
+
+    def _toggle_theme(self):
+        self.theme = "dark" if self.theme == "light" else "light"
+        apply_theme(self.theme)
+        self.root.configure(bg=DESK_BOTTOM)
+        self._save_settings()
+        self.redraw_all()
 
     def _change_date(self, new):
         if new == self.current or self._animating:
